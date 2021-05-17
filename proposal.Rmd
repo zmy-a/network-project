@@ -1,0 +1,950 @@
+---
+title: "proposal"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+In recent years, networks have been increasingly applied in many different fields of scientific research, ranging from microscopic networks such as protein-protein interaction networks, gene regulatory networks or brain networks, to macroscopic networks such as social networks, organizational networks, mobility and transport networks.Therefore,we focus on this specific type data, namely networks. A network $G$ = $(V, E)$ is a complex combinatorial object composed of a set $V$ of nodes that can be connected or not, according to the edge set $E$. 
+Two-sample tests for multivariate data and non-Euclidean data are widely used in many fields. Parametric tests are mostly restrained to certain types of data that meets the assumptions of the parametric models. In this paper, we study a nonparametric testing procedure that uses graphs representing the similarity among observations. It can be applied to any data types as long as an informative similarity measure on the sample space can be defined. We summary the three test based on minimal spanning trees, and apply them to our two network datasets: 1.two group brain networks of patients with and without Parkinson’s disease; 2.Flight network data at U.S. airports in 2015.
+
+
+## Data Information
+####  Parkinson dataset
+
+The following packages will be used in this project:
+
+```{r}
+library(igraph)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(ggpubr)
+library(factoextra)
+library(gTests)
+```
+
+We use the function read_csv to read data. Park_All_1_is experimental data for patients with Parkinson's disease, and Park_Control_All  is the data for the control group, that is, those who do not have Parkinson's disease.
+```{r}
+Park_All_1_ <- read.csv("Park All(1).csv")
+Park_Control_All <- read.csv("Park Control All.csv")
+
+```
+
+### Data description
+
+Connectome data obtained by functional MRI brain imaging allow neuroscientists to measure the correlation of activity between brain regions. For example, if a stimulus activates the visual and auditory regions of the brain at the same time, these regions would be said to be functionally correlated.  Connectome data has many applications in health and disease.Connectomes are represented as graphs with nodes being investigator defined regions of interest in the brain with known functions (eg, auditory, visual, and somatomotor), and edges connecting the nodes weighted by a measure of association (eg, Pearson correlation). A connectome measured on a subject may contain hundreds of nodes and tens of thousands of edges.
+
+In this article, we use such a brain connectome data. We've got data from two trials on whether or not people have Parkinson's disease. Because we have data from a CSV file, and each column of the data represents the lower triangle of an adjacency matrix, which is a sample, so we first need to restore the data to the form that each sample is an adjacency matrix.
+
+First, we convert the raw data into the form of adjacency matrix, then convert each adjacency matrix into the form of igraph, and store them in a list, and since the range of the original data is (-1, 1), we normalized it to (0,1) for the convenience of subsequent work.
+```{r cars}
+#convert the raw data into the form of adjacency matrix
+Adjacency_matrix <- function(data){
+   data <- as.data.frame(data)
+  mat <- list()
+  for (i in 1:ncol(data)) {
+    veccol <- data[,i]
+    matcol <- matrix(0,264,264)
+    for (j in 1:263) {
+      for (p in 1:j) {
+        matcol[(j+1),p] <-as.vector(veccol[(j-1)*j/2+p])
+        matcol[p,(j+1)] <-matcol[(j+1),p]
+      }
+    }
+    mat[[i]] <- matcol
+  }
+  return(mat)
+}
+
+am<-Adjacency_matrix(Park_All_1_)
+am_con<-Adjacency_matrix(Park_Control_All)
+#Normalize the adjacency matrix between (0,1)
+sd_am<-function(mat){
+  sd_mat <-list()
+  for (i in (1:length(mat))) {
+    sd_mat[[i]]<-(mat[[i]]-min(mat[[i]]))/(max(mat[[i]])-min(mat[[i]]))
+    diag(sd_mat[[i]])<-0
+  }
+  return(sd_mat)
+}
+
+am_sd<-sd_am(am)
+am_sd_con<-sd_am(am_con)
+all_ad<-c(am_sd,am_sd_con)
+list_to_array<-function(list){
+  my_array<-array(0,dim=c(length(list),264,264))
+  for (i in 1:length(list)){
+    my_array[i,,]<-list[[i]]
+  }
+  return(my_array)
+}
+all_ad_list<-list_to_array(all_ad)
+am_array<-list_to_array(am)
+am_con_array<-list_to_array(am_con)
+#convert each adjacency matrix into the form of igraph
+graph_list<-function(mat_list){
+  graph<-list()
+  for (i in 1:length(mat_list)) {
+    graph[[i]]<-graph_from_adjacency_matrix(mat_list[[i]], mode = "undirected", weighted = TRUE)
+  }
+  return(graph)
+}
+igraph_list<-graph_list(am_sd)
+igraph_list_con<-graph_list(am_sd_con)
+```
+
+## Data visualization
+First of all, we have a general understanding of the structure of these data through the correlation coefficient graph.We can find that for Parkinson's patients, the correlation between some acupuncture points in the brain is much weaker than people without Parkinson.The first column of the following two figure is the person with and without Parkinson.
+```{r}
+melted_cormat <- melt(am_sd[[15]])
+cor1_all<-ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value))+ geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Parkinson")+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+
+melted_cormat2 <- melt(am_sd[[30]])
+cor2_all<-ggplot(data = melted_cormat2, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Parkinson")+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat3 <- melt(am_sd[[55]])
+cor3_all<-ggplot(data = melted_cormat3, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Parkinson")+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+
+melted_cormat_con <- melt(am_sd_con[[10]])
+cor1_con_all<-ggplot(data = melted_cormat_con, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Control")+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat_con2 <- melt(am_sd_con[[11]])
+cor2_con_all<-ggplot(data = melted_cormat_con2, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Control")+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat_con3 <- melt(am_sd_con[[27]])
+cor3_con_all<-ggplot(data = melted_cormat_con3, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Control")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+
+melted_cormat <- melt(am_sd[[15]][100:150,100:150])
+cor1<-ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Parkinson")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat2 <- melt(am_sd[[30]][100:150,100:150])
+cor2<-ggplot(data = melted_cormat2, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Parkinson")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat_con <- melt(am_sd_con[[10]][100:150,100:150])
+cor1_con<-ggplot(data = melted_cormat_con, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Control")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+melted_cormat_con2 <- melt(am_sd_con[[27]][100:150,100:150])
+cor2_con<-ggplot(data = melted_cormat_con2, aes(x=Var1, y=Var2, fill=value)) + geom_tile()+scale_fill_gradient2(low = "skyblue", high = "orangered", mid="white", limit = c(0,1),midpoint = 0.5,space ="Lab")+ggtitle("Control")+theme(plot.title = element_text(hjust = 0.5,size=40))+theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank())
+
+ggarrange(cor1_all,cor2_all,cor3_all,cor1_con_all,cor2_con_all,cor3_con_all,ncol = 3, nrow = 2)
+ggarrange(cor1,cor2,cor1_con,cor2_con,ncol = 2, nrow = 2)
+
+```
+
+
+
+## Data summary
+For weighted networks, a useful generalization of degree is the notion of vertex strength, which is obtained simply by summing up the weights of edges incident to a given vertex. The distribution of strength—sometimes called the weighted degree distribution—is defined in analogy to the ordinary degree distribution.Therefore, we calculated the strength of network in the two groups to make a simple comparison.
+
+
+```{r }
+par(mfrow=c(2,2))
+hist(graph.strength(igraph_list[[15]]), col="pink", xlab="Vertex Strength", ylab="Frequency", main="Parkinson",xlim = c(90,150),freq=FALSE)
+hist(graph.strength(igraph_list[[30]]), col="pink", xlab="Vertex Strength", ylab="Frequency", main="Parkinson",xlim = c(90,150),freq=FALSE)
+hist(graph.strength(igraph_list_con[[10]]), col="pink", xlab="Vertex Strength", ylab="Frequency", main="Control",xlim = c(90,150),freq=FALSE)
+hist(graph.strength(igraph_list_con[[27]]), col="pink", xlab="Vertex Strength", ylab="Frequency", main="Control",xlim = c(90,150),freq=FALSE)
+summary(graph.strength(igraph_list[[15]]))
+summary(graph.strength(igraph_list[[30]]))
+summary(graph.strength(igraph_list_con[[10]]))
+summary(graph.strength(igraph_list_con[[27]]))
+```
+
+Secondly, in order to further understand the characteristics of the data, we calculated the minimum value, maximum value and mean value of strength for each sample of the two groups of data.The corresponding boxplot was drawn for comparison, and we found that the data of Parkinson's group always had outliers. Therefore, we could preliminarily think that the strength of Parkinson's patients was different from that of normal people.
+
+```{r}
+vec_mean<-rep(0,length(igraph_list))
+vec_max<-rep(0,length(igraph_list))
+vec_min<-rep(0,length(igraph_list))
+for (i in 1:length(igraph_list)) {
+  vec_mean[i]<-mean(graph.strength(igraph_list[[i]]))
+  vec_max[i]<-max(graph.strength(igraph_list[[i]]))
+  vec_min[i]<-min(graph.strength(igraph_list[[i]]))
+}
+
+vec_mean_con<-rep(0,length(igraph_list_con))
+vec_max_con<-rep(0,length(igraph_list_con))
+vec_min_con<-rep(0,length(igraph_list_con))
+for (i in 1:length(igraph_list_con)) {
+  vec_mean_con[i]<-mean(graph.strength(igraph_list_con[[i]]))
+  vec_max_con[i]<-max(graph.strength(igraph_list_con[[i]]))
+  vec_min_con[i]<-min(graph.strength(igraph_list_con[[i]]))
+}
+name<-rep(c("mean","mean_con"),c(length(igraph_list),length(igraph_list_con)))
+data_mean<-data.frame(name,c(1:117),c(vec_mean,vec_mean_con))
+value_mean<-c(vec_mean,vec_mean_con)
+plotmean<-ggplot(data_mean,aes(x=name,y=value_mean),color=name)+geom_boxplot(aes(fill=name))+labs(x="method",y="strength",title="",fill="groups")+theme(legend.position="none")
+
+value_max<-c(vec_max,vec_max_con)
+name_max<-rep(c("max","max_con"),c(length(igraph_list),length(igraph_list_con)))
+data_max<-data.frame(name_max,c(vec_max,vec_max_con))
+plotmax<-ggplot(data_max,aes(x=name_max,y=value_max),color=name_max)+geom_boxplot(aes(fill=name_max))+labs(x="method",y="strength",title="",fill="groups")+theme(legend.position="none")
+
+value_min<-c(vec_min,vec_min_con)
+name_min<-rep(c("min","min_con"),c(length(igraph_list),length(igraph_list_con)))
+data_min<-data.frame(name_min,c(vec_min,vec_min_con))
+plotmin<-ggplot(data_min,aes(x=name_min,y=value_min),color=name_min)+geom_boxplot(aes(fill=name_min))+labs(x="method",y="strength",title="",fill="groups")+theme(legend.position="none")
+
+ggarrange(plotmean,plotmax,plotmin,ncol = 3, nrow = 1)
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+library(nevada)
+min_froben <- function(n,mat){
+dist<-matrix(0,n,n)
+dist_m<-rep(0,n)
+for (i in 1:n) {
+  for (j in 1:n) {
+dist[i,j]<-dist_frobenius(mat[[i]],mat[[j]], representation = "adjacency")^2
+  }
+  dist_m[i] <- sum(dist[i,])/(n-1)
+}
+min_in <- which(dist_m==min(dist_m))
+max_in <- which(dist_m==max(dist_m))
+return(list(dist_m,min_in,max_in))
+}
+fro<-min_froben(81,am_sd)
+index<-fro[[2]]
+fro_con<-min_froben(36,am_sd_con)
+index_con<-fro_con[[2]]
+
+mean_matrix<- melt(am_sd[[18]])
+mm<-ggplot(data = mean_matrix, aes(x=Var1, y=Var2, fill=value)) + geom_tile()
+mean_matrix_con<- melt(am_sd_con[[18]])
+mm_con<-ggplot(data = mean_matrix, aes(x=Var1, y=Var2, fill=value)) + geom_tile()
+ggarrange(mm,mm_con,ncol = 2, nrow = 1)
+
+dist_frobenius(am_sd[[index]],am_sd_con[[index_con]], representation = "adjacency")
+
+```
+
+#### Flight dataset
+We have flight data for all airports in the United States in 2015. We select the 50 busiest airports as the vertices of the network data, and the number of flights between them is used as the weight of the edges of the network data, there are a total of 334 days of data, which means that we have 334 networks, of which there are 239 days on weekdays and 95 days on weekends. Therefore, the data on weekdays and the data on weekends are divided into two groups for two-sample test.
+
+```{r eval=FALSE, include=FALSE}
+#==== Load Data
+setwd("~/real\ data")
+flight <- read.csv(file = "flights.csv", header = TRUE)
+airport <- read.csv(file = "airports.csv", header = TRUE)
+print(names(flight))
+print(dim(flight))
+#summary(flight)
+
+#=== Initialization
+ind <- which(names(flight) %in% c("MONTH", "DAY", "DAY_OF_WEEK", "AIR_TIME",
+                                  "AIRLINE","FLIGHT_NUMBER", "ORIGIN_AIRPORT",
+                                  "DESTINATION_AIRPORT"))
+flight <- flight[,ind]
+
+air.code <- airport$IATA_CODE
+v.size <- nrow(airport)
+N <- 50 # Top-N busy airport
+
+##!! There are wrong values in month 10
+flight <- 
+  flight %>% 
+  filter(ORIGIN_AIRPORT %in% air.code) %>%
+  mutate(ORIGIN_AIRPORT = factor(ORIGIN_AIRPORT, air.code, labels = air.code)) %>%
+  mutate(DESTINATION_AIRPORT = factor(DESTINATION_AIRPORT, air.code, labels = air.code))
+
+# Calculate the count and select top-N
+ORIGIN_AIRPORT_COUNT <- 
+  flight %>% 
+  group_by(ORIGIN_AIRPORT) %>%
+  summarise(count =n())
+
+DESTINATION_AIRPORT_COUNT <- 
+  flight %>% 
+  group_by(DESTINATION_AIRPORT) %>%
+  summarise(count =n())
+
+AIRPORT_COUNT <- 
+  merge(ORIGIN_AIRPORT_COUNT, DESTINATION_AIRPORT_COUNT,
+        by.x = "ORIGIN_AIRPORT",
+        by.y = "DESTINATION_AIRPORT") %>%
+  mutate(total = count.x+count.y) %>%
+  arrange(desc(total)) 
+
+Selected <- AIRPORT_COUNT$ORIGIN_AIRPORT[1:N]
+  
+flight <- 
+  flight %>% 
+  filter((ORIGIN_AIRPORT %in% Selected) & (DESTINATION_AIRPORT %in% Selected))%>%
+  mutate(Month_Day=paste(MONTH,DAY))
+
+## Rearrange the data with particular day
+Month_Day.res <- 
+  flight %>%
+  group_by(Month_Day, ORIGIN_AIRPORT, DESTINATION_AIRPORT) %>%
+  summarise(count =n(),
+            Air_Time = mean(AIR_TIME, na.rm = TRUE))
+
+## Extract weak day month
+Mapping <- 
+  flight %>% 
+  select(Month_Day, MONTH, DAY, DAY_OF_WEEK) %>%
+  unique()
+
+## Deal Data Fun
+Deal_Data <- function(data, v.size, air.code){
+  name <- names(data)[1]
+  Name <- unique(data[[name]])
+  sample.size <- length(Name)
+  edge.size <- nrow(data)
+  
+  Count <- array(0, dim = c(sample.size, v.size, v.size))
+  AirTime <- array(0, dim = c(sample.size, v.size, v.size))
+  
+  #for(i in 1:sample.size){
+  #  tmp <- data[data[[name]]==Name[i],]
+  #  
+  #  org.ind <- sapply(1:edge.size, function(i){which(data$ORIGIN_AIRPORT[i]==air.code)})
+  #  dest.ind <- sapply(1:edge.size, function(i){which(data$DESTINATION_AIRPORT[i]==air.code)})
+  #  
+  #  ind <- v.size*(org.ind-1) + dest.ind
+  #  Count[i,,][ind] <- data$count
+  #  AirTime[i,,][ind] <- data$Air_Time
+  #}
+  
+  
+  for(i in 1:sample.size){
+    tmp <- data[data[[name]]==Name[i],]
+    for(j in 1:v.size){
+      ORI <- air.code[j]
+      tmp.ori <- tmp[which(tmp$ORIGIN_AIRPORT == ORI),]
+      if(nrow(tmp.ori)!=0){
+        for(k in 1:v.size){
+          DES <- air.code[k]
+          tmp.ori.des <- tmp[which(tmp.ori$DESTINATION_AIRPORT == DES),]
+          
+          if(nrow(tmp.ori.des)!=0){
+            Count[i,j,k] <- tmp.ori.des$count
+            AirTime[i,j,k] <- tmp.ori.des$Air_Time
+          }
+        }
+      }
+    }
+  }
+  
+  return(list(Name = Name,
+              Count = Count,
+              AirTime = AirTime))
+}
+
+
+## Generate Final array
+Month_Day.net <- Deal_Data(Month_Day.res, v.size=N, air.code = Selected)
+
+Count <- Month_Day.net$Count
+AirTime <- Month_Day.net$AirTime
+Name.tmp <- data.frame(Name=Month_Day.net$Name)
+Mapping.order <- merge(Name.tmp, Mapping, 
+                       by.x = "Name", by.y = "Month_Day")
+ind1<-which(Mapping.order$DAY_OF_WEEK<=5)
+Count1<-Count[ind1,,]
+Count2<-Count[-ind1,,]
+Mapping.order1<-Mapping.order[ind1,]
+Mapping.order2<-Mapping.order[-ind1,]
+```
+
+The difference of the two groups was shown by their strength distribution. We can clearly see that there will be more flights on weekdays than on weekends.
+```{r eval=FALSE, include=FALSE}
+graph_list_d<-function(n,array){
+  graph<-list()
+  for (i in 1:n) {
+    graph[[i]]<-graph_from_adjacency_matrix(array[i,,], mode = "directed", weighted = TRUE)
+  }
+  return(graph)
+}
+flight1<-graph_list_d(239,Count1)
+flight2<-graph_list_d(95,Count2)
+flight1_data<-hist_data(239,flight1)
+flight2_data<-hist_data(95,flight2)
+par(mfrow=c(1,2))
+hist(flight1_data, col="pink", xlab="Vertex Strength", ylab="Density", main="Weekdays", xlim=c(200,1600),freq=FALSE,breaks = 14,cex.axis=1.3,cex.lab=1.6,cex.main=2)
+lines(density(flight1_data))
+hist(flight2_data, col="pink", xlab="Vertex Strength", ylab="Density", main="Weekends",  xlim=c(200,1600),freq=FALSE,breaks = 14,cex.axis=1.3,cex.lab=1.7,cex.main=2)
+lines(density(flight2_data))
+
+
+
+```
+
+
+## Model 
+We begin by introducing some concept about minimal spanning tree. A spanning subgraph of a given graph is a subgraph with node set identical to the node set of the given sraph, a spanning tree of a graph is a spanning subgraph that is a tree. Note that here is a (unique) path between every two nodes in a tree, and thus a spanning tree of a (connected) graph provides a path between every two nodes of the graph.
+An edge weighted graph is a graph with a real number assigned to each edge, a minimal spanning tree (MST) of an edge weighted graph is a spanning tree for which the sum of edge weights is a minimum. 
+
+\item Model1:Edge-Count test(1979)
+For a univariate sample, the edges of the MST are defined by adjacent points in the sorted list. The Wald-Wolfowitz runs test described above can be alternately described as follows:
+
+(1) construct the MST of the pooled sample (univariate) data points.
+
+(2) remove all edges for which the defining nodes originate from different samples.
+
+(3) define the test statistic $R$ as the number of disjoint subtrees that result. This will be one more than the number of edges deleted. Rejection of $H_{0}$ is for a small number of subtrees (runs).
+
+Number the $N-1$ edges of the MST arbitrarily and define $Z_{i}, 1 \leqslant i \leqslant N-1,$ as follows:
+$Z_{i}=1$, if the $i$ th edge links nodes from different samples;$Z_{i}=0$, otherwise.
+
+Then
+$$
+\quad R=\sum_{i=1}^{N-1} Z_{i}+1 \quad \text { and } \quad E[R]=\sum_{i=1}^{N-1} E\left[Z_{i}\right]+1
+$$
+$$W=\frac{R-E[R]}{(\operatorname{Var}[R])^{\frac{1}{2}}}$$
+An MST connects all of the points with minimum total distance. A second MST connects all of the points with minimum total distance subject to the constraint that it be orthogonal to the first MST. A third MST connects the points with minimum total distance subject to the constraint that it be orthogonal to both the first and second MSTs. Generally, the $k$ th MST is a minimal spanning tree orthogonal to the $(k-1)$ th through the first MST. We can use $k$th MST to conduct our test.
+
+Model2:General test (2017)
+The two basic types of alternatives are location and scale alternatives. Although all these tests were proposed for general alternatives, none of them is sensitive to both kinds of alternatives in practical settings. When the dimension is moderate to high and the two distributions differ in scale, the phenomenon that points in the outer layer find themselves to be closer to points in the inner layer than other points in the outer layer is common unless the number of points in the outer layer is extremely large. 
+The reason is that the volume of a d-dimensional space increases exponentially in d. When d is large, we can put a huge number of points on the unit surface such that no pair of them is closer than 1. Then, each point on the unit surface would find the origin to be closer than any other point on the unit surface. If there are points on an inner layer inside of the unit surface, then most of the points on the unit surface would find points in that inner layer to be closer than their closest points on the unit surface. This argument can be extended to any pair of distributions differing in scale under moderate to high dimension.
+To solve the scale alternatives problem, the general test was proposed by Hao chen (2017),which is given by:
+
+$$
+S=\left(R_{1}-\mu_{1}, R_{2}-\mu_{2}\right) \Sigma^{-1}\left(\begin{array}{l}
+	R_{1}-\mu_{1} \\
+	R_{2}-\mu_{2}
+\end{array}\right)
+$$
+where$R_{1}$ is the number of edges connecting observations both from sample $\mathbf{X}$, and $R_{2}$ is the number of edges connecting observations both from sample $\mathbf{Y}$， $\mu_{1}=\mathbf{E}\left(R_{1}\right), \mu_{2}=\mathbf{E}\left(R_{2}\right)$, and $\Sigma$ is the covariance matrix of the vector $\left(R_{1}, R_{2}\right)^{\prime}$ under the permutation null distribution.  Under the location-alternative, or the scale-alternative for lowdimensional data, we would expect both $R_{1}$ and $R_{2}$ to be larger than their null expectations, then $S$ would be large. Under the scale-alternative for moderate/high-dimensional data, the number of within-sample edges for the sample with a smaller variance is expected to be larger than its null expectation, and the number of within-sample edges for the sample with a larger variance is expected to be smaller than its null expectation, then $S$ would also be large. Therefore, the test defined in this way is sensitive to both location and scale alternatives.
+
+
+
+Model3:Weighted edge-Count test(2018)
+When the sample sizes of the two samples are different, the tests above have small power than the balance sample size, Hao chen (2017) et.al solve the problem by applying appropriate weights to different components of the classic test statistic, which is defined as:
+$$R_{w}=q R_{1}+p R_{2}, \quad p=\frac{m}{N}, \quad q=1-p$$
+where $m$ is the sample size of $\mathcal{F}_1$, $n$ is the sample size of $\mathcal{F}_2$, $m+n=N$. When the test statistic is defined in this way, its variance is well controlled no matter how different $m$ and $n$ are.
+
+
+## Result
+```{r eval=FALSE, include=FALSE}
+netdis_matrix<-function(array){
+  dis<-matrix(0,dim(array)[1],dim(array)[1])
+ for (i in 1:dim(array)[1]) {
+    for (j in 1:i) {
+      dis[i,j]<-dis[j,i]<-dis_hamming(array[i,,],array[j,,])
+    }
+  }
+  return(dis)
+}
+
+park_dis<-netdis_matrix(all_ad_list)
+
+#mst
+mst_count1<-matrix(0,117,2)
+mst_count1[1:81,1]<-1
+mst_count1[82:117,2]<-1
+park_dis<-netdis_matrix(all_ad_list)
+park_dis_poly<-compare_graphs(all_ad_list,distance_type="poly",args=list(order_max=3,alpha=0.9))
+MST1<-getGraph(mst_count1, park_dis, 1, graph.type = "mstree")
+#MST1_poly<-getGraph(mst_count1, park_dis_poly, 1, graph.type = "mstree")
+MST2<-as.numeric(MST1)
+  MST3<-matrix(0,116,2)
+MST3[,1]<-MST2[1:116]
+  MST3[,2]<-MST2[117:232]
+  MST4<-as.data.frame(MST3)
+simpleNetwork(MST4)
+MST4$dis<-0
+for (i in 1:116) {
+  MST4$dis[i]<- park_dis[MST4$V1[i],MST4$V2[i]]
+}
+
+nodes<-matrix(0,117,1)
+nodes[,1]<-1:117
+node_df<-as.data.frame(nodes)
+colnames(MST4) <- c("source","target","value")
+node_df$group<-c(rep(1,81),rep(2,36))
+node_df$size=1
+
+
+
+##two sample t test
+sample<-rep(0,117)
+am_all<-c(am,am_con)
+for (i in 1:117) {
+  sample[i]<-sum(am_all[[i]])
+}
+ttest<-t.test(sample[1:81],sample[82:117])
+ttest$p.value
+
+## our rank test
+
+T_sta_rank<-function(data1,data2){
+  data_dif<-array(0,dim = c(dim(data1)[1]+dim(data2)[1],dim(data2)[2],dim(data2)[2]))
+  data_dif[1:dim(data1)[1],,]<-data1
+  data_dif[(dim(data1)[1]+1):(dim(data_dif)[1]),,]<-data2
+  n1<-dim(data1)[1]
+  n<-dim(data_dif)[1]
+  mst_count1<-matrix(0,n,2)
+  mst_count1[1:n1,1]<-1
+  mst_count1[(n1+1):n,2]<-1
+  mydist<-netdis_matrix(data_dif)
+  MST1<-getGraph(mst_count1, mydist, 1, graph.type = "mstree")
+  MST2<-as.numeric(MST1)
+  MST3<-matrix(0,n-1,2)
+  MST3[,1]<-MST2[1:n-1]
+  MST3[,2]<-MST2[n:(2*(n-1))]
+  MST4<-as.data.frame(MST3)
+  MST4$dis<-0
+  for (i in 1:n-1) {
+    MST4$dis[i]<-mydist[MST4$V1[i],MST4$V2[i]]
+  }
+  MST4$order <- rank(MST4$dis)
+  MST4$b <- 1
+  for (i in 1:nrow(MST4)) {
+    if((MST4$V1[i]<=n1 & MST4$V2[i]<=n1)|(MST4$V1[i]>n1 &  MST4$V2[i]>n1)){
+      MST4$b[i] <- 0
+    }
+  }
+  return(sum(MST4$order*MST4$b))
+} 
+
+
+
+rank1<-T_sta_rank(am_array,am_con_array)
+rank1_flight<-T_sta_rank(Count1,Count2)
+T_sta_cross<-function(data1,data2){
+  data<-c(data1,data2)
+  #data<-rbind(data1,data2)
+  #n1<-nrow(data1)
+  #n<-nrow(data)
+  n1<-length(data1)
+  n<-length(data)
+  mst_count1<-matrix(0,n,2)
+  mst_count1[1:n1,1]<-1
+  mst_count1[(n1+1):n,2]<-1
+  data<-as.data.frame(data)
+  mydist<-distance(data)
+  MST1<-getGraph(mst_count1, mydist, 1, graph.type = "mstree")
+  MST2<-as.numeric(MST1)
+  MST3<-matrix(0,n-1,2)
+  MST3[,1]<-MST2[1:n-1]
+  MST3[,2]<-MST2[n:(2*(n-1))]
+  MST4<-as.data.frame(MST3)
+  MST4$dis<-0
+  for (i in 1:n-1) {
+    MST4$dis[i]<-mydist[MST4$V1[i],MST4$V2[i]]
+  }
+  MST4$order <- rank(MST4$dis)
+  MST4$b <- 1
+  for (i in 1:nrow(MST4)) {
+    if((MST4$V1[i]<=n1 & MST4$V2[i]<=n1)|(MST4$V1[i]>n1 &  MST4$V2[i]>n1)){
+      MST4$b[i] <- 0
+    }
+  }
+  return(sum(MST4$order*MST4$b))
+} 
+
+#find the distribution
+times <-5000
+sta <- rep(0,times)
+Sigma<-diag(2)
+for (i in 1:times) {
+  data1<-rnorm(239,0,1)
+  data2<-rnorm(95, 0, 1)
+  sta[i] <-T_sta_cross(data1,data2)
+}
+
+cv_rank<-quantile(sta,0.05)
+
+p_value_r_flight<-pnorm((rank1_flight-mean(sta))/sqrt(var(sta)))
+p_value_flight<-length(which(sta<=rank1_flight))/times
+##计算新分布的size
+times0=500
+rank_test_size<-rep(0,times0)
+for (i in 1:times0) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(0, 2), Sigma)
+  rank_test_size[i]<-T_sta_cross(data1,data2)
+}
+rank_test_power<-matrix(0,times0,k)
+for (i in 1:times0) {
+  for (j in 1:k) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(1, 2), Sigma)
+  rank_test_power[i,j]<-T_sta_cross(j,data1,data2)
+  }
+}
+
+size<-length(which(rank_test_size<cv_rank))/times0
+power<-length(which(rank_test_power<cv_rank))/times0
+p_value_rank<-length(which(sta<=rank1))/times
+p_value_flight<-length(which(sta<=rank1_flight))/times
+#find the distribution of 1979 2017 2018
+TEST_mst<-function(data1,data2){
+  data<-rbind(data1,data2)
+  n1<-nrow(data1)
+  n<-nrow(data)
+  distance<-distance(data,method="euclidean")
+  mst_count1<-matrix(0,n,2)
+  mst_count1[1:n1,1]<-1
+  mst_count1[(n1+1):n,2]<-1
+  mydist<-distance(data)
+  MST1<-getGraph(mst_count1, mydist, 1, graph.type = "mstree")
+  TEST<-g.tests(MST1, 1:n1, (n1+1):n, test.type="all", maxtype.kappa = 1.14, perm=0)
+  #TEST3<-g.tests(MST3, 1:n1, (n1+1):n, test.type="all", maxtype.kappa = 1.14, perm=0)
+  return(TEST)
+}
+times <-10000
+sta_1979 <- rep(0,times)
+sta_general<-rep(0,times)
+sta_weighted<-rep(0,times)
+Sigma<-diag(2)
+for (i in 1:times) {
+ data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(0, 2), Sigma)
+  TEST_T<-TEST_mst(data1,data2)
+  sta_1979[i] <-TEST_T$original$test.statistic
+  sta_general[i]<-TEST_T$generalized$test.statistic
+  sta_weighted[i]<-TEST_T$weighted$test.statistic
+}
+
+#cv_1979 <- quantile(sta_1979,c(0.025,0.975))
+cv_1979_05<-quantile(sta_1979,0.05)
+#cv_general <- quantile(sta_general,c(0.025,0.975))
+cv_general_95<-quantile(sta_general,0.95)
+#cv_weighted <- quantile(sta_weighted,c(0.025,0.975))
+cv_weighted_95<-quantile(sta_weighted,0.95)
+
+##power of MST
+##不同分布
+times0=100
+sta_power_1979 <- rep(0,times0)
+sta_power_general <- rep(0,times0)
+sta_power_weighted <- rep(0,times0)
+Sigma<-diag(2)
+for (i in 1:times0) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(1, 2), Sigma)
+  MST<-TEST_mst(data1,data2)
+  sta_power_1979[i]<-MST$original$test.statistic
+  sta_power_general[i]<-MST$generalized$test.statistic
+  sta_power_weighted[i]<-MST$weighted$test.statistic
+}
+#power_1979 <- length(which(sta_power_1979>cv_1979[2]|sta_power_1979<cv_1979[1]))/times0
+power05_1979 <- length(which(sta_power_1979<cv_1979_05))/times0
+#power_general <- length(which(sta_power_general>cv_general[2]|sta_power_general<cv_general[1]))/times0
+power05_general <- length(which(sta_power_general>cv_general_95))/times0
+#power_weighted <- length(which(sta_power_weighted>cv_weighted[2]|sta_power_weighted<cv_weighted[1]))/times0
+power05_weighted <- length(which(sta_power_weighted>cv_weighted_95))/times0
+
+##不同分布
+times0=500
+sta_size_1979 <- rep(0,times0)
+sta_size_general <- rep(0,times0)
+sta_size_weighted <- rep(0,times0)
+Sigma<-diag(2)
+for (i in 1:times0) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(0, 2), Sigma)
+  MST<-TEST_mst(data1,data2)
+  sta_size_1979[i]<-MST$original$test.statistic
+  sta_size_general[i]<-MST$generalized$test.statistic
+  sta_size_weighted[i]<-MST$weighted$test.statistic
+}
+#power_1979 <- length(which(sta_power_1979>cv_1979[2]|sta_power_1979<cv_1979[1]))/times0
+size05_1979 <- length(which(sta_size_1979<cv_1979_05))/times0
+#power_general <- length(which(sta_power_general>cv_general[2]|sta_power_general<cv_general[1]))/times0
+size05_general <- length(which(sta_size_general>cv_general_95))/times0
+#power_weighted <- length(which(sta_power_weighted>cv_weighted[2]|sta_power_weighted<cv_weighted[1]))/times0
+size05_weighted <- length(which(sta_size_weighted>cv_weighted_95))/times0
+
+
+##t.test
+sta_ttest<-rep(0,times)
+for (i in 1:times) {
+  data1<-rnorm(81, 0, 1)
+  data2<-rnorm(36, 0, 1)
+ sta_ttest[i]<-t.test(data1,data2)$statistic
+}
+
+cv_ttest<-quantile(sta_ttest,0.05)
+times0=500
+t_test_size<-rep(0,times0)
+for (i in 1:times0) {
+   data1<-rnorm(81, 0, 1)
+  data2<-rnorm(36, 0, 1)
+  t_test_size[i]<-t.test(data1,data2)$statistic
+}
+t_test_power<-rep(0,times0)
+for (i in 1:times0) {
+   data1<-rnorm(81, 0, 1)
+  data2<-rnorm(36, 1, 1)
+  t_test_power[i]<-t.test(data1,data2)$statistic
+}
+
+size_t<-length(which(t_test_size<cv_ttest))/times0
+power_t<-length(which(t_test_power<cv_ttest))/times0
+
+ttest<-t.test(sample[1:81],sample[82:117])
+ttest$p.value
+
+
+##flight p-value
+sample_flight<-rep(0,334)
+data_dif<-array(0,dim=c(334,50,50))
+  data_dif[1:239,,]<-Count1
+  data_dif[240:334,,]<-Count2
+for (i in 1:334) {
+  sample_flight[i]<-sum(data_dif[i,,])
+}
+ttest_flight<-t.test(sample_flight[1:239],sample_flight[240:334])
+ttest_flight$p.value
+
+##
+mst_flight<-matrix(0,334,2)
+mst_flight[1:239,1]<-1
+mst_flight[240:334,2]<-1
+flight_dis<-netdis_matrix(data_dif)
+#park_dis_poly<-compare_graphs(all_ad_list,distance_type="poly",args=list(order_max=3,alpha=0.9))
+MST1_flight<-getGraph(mst_flight, flight_dis, 1, graph.type = "mstree")
+#MST1_poly<-getGraph(mst_count1, park_dis_poly, 1, graph.type = "mstree")
+TEST1_flight<-g.tests(MST1_flight, 1:239, 240:334, test.type="all", maxtype.kappa = 1.14, perm=0)
+MST2_flight<-as.numeric(MST1_flight)
+ MST3_flight<-matrix(0,333,2)
+  MST3_flight[,1]<-MST2_flight[1:333]
+  MST3_flight[,2]<-MST2_flight[334:666]
+  MST4_flight<-as.data.frame(MST3_flight)
+  MST4_flight$dis<-0
+for (i in 1:333) {
+  MST4_flight$dis[i]<- flight_dis[MST4_flight$V1[i],MST4_flight$V2[i]]
+}
+
+nodes_flight<-matrix(0,334,1)
+nodes_flight[,1]<-0:333
+node_df_flight<-as.data.frame(nodes_flight)
+colnames(MST4_flight) <- c("source","target","dis")
+node_df_flight$group<-c(rep("weekdays",239),rep("weekends",95))
+
+simpleNetwork(MST4,zoom=TRUE)
+MST4_flight$source = as.numeric(MST4_flight$source)
+MST4_flight$target = as.numeric(MST4_flight$target)
+MST4_flight$dis = as.numeric(MST4_flight$dis)
+node_df_flight$group=as.character(node_df_flight$group)
+MST4_flight$source=MST4_flight$source-1
+MST4_flight$target=MST4_flight$target-1
+#node_df$V1=node_df$V1-1
+ColourScale1 <- 'd3.scaleOrdinal()
+            .domain(["weekdays", "weekends"])
+           .range(["#FF6900", "#694489"]);'
+forceNetwork(Links =MST4_flight,Nodes =node_df_flight,Source ="source",Target = "target",Value = "dis",NodeID = "V1",Group = "group",zoom = TRUE,colourScale = JS(ColourScale1), height=1500,width=1500,legend = T )
+  
+  
+TEST1_flight$original$pval.approx
+
+TEST1_flight$generalized$pval.approx
+TEST1_flight$weighted$pval.approx
+
+
+
+
+test_pvalue<-c(ttest$p.value,TEST1$original$pval.approx,TEST1$generalized$pval.approx,TEST1$weighted$pval.approx,p_value_rank)
+name<-c("1t-test","2Edge-Count test","3general test","4weighted test","5rank-test")
+dataplot<-matrix(0,5,2)
+dataplot[,1]<-name
+dataplot[,2]<-test_pvalue
+
+dataplot<-as.data.frame(dataplot)
+
+#dataplot<-dataplot[order(dataplot$V2),]
+ggplot(data = dataplot, aes(x = V1, y = V2,group=1))+geom_point(size = 3) +geom_line(size = 1) 
+
+```
+
+
+```{r}
+##计算R1和R2的函数
+statistic_ours2_mst_mat <- function(data1,data2){
+  data_dif<-array(0,dim = c(dim(data1)[1]+dim(data2)[1],dim(data2)[2],dim(data2)[2]))
+  data_dif[1:dim(data1)[1],,]<-data1
+  data_dif[(dim(data1)[1]+1):(dim(data_dif)[1]),,]<-data2
+  n1<-dim(data1)[1]
+  n<-dim(data_dif)[1]
+  mst_count1<-matrix(0,n,2)
+  mst_count1[1:n1,1]<-1
+  mst_count1[(n1+1):n,2]<-1
+  mydist<-netdis_matrix(data_dif)
+  MST1<-getGraph(mst_count1, mydist, 1, graph.type = "mstree")
+  MST2<-as.numeric(MST1)
+  MST3<-matrix(0,n-1,2)
+  MST3[,1]<-MST2[1:n-1]
+  MST3[,2]<-MST2[n:(2*(n-1))]
+  MST4<-as.data.frame(MST3)
+  MST4$dis<-0
+  for (i in 1:n-1) {
+    MST4$dis[i]<-mydist[MST4$V1[i],MST4$V2[i]]
+  }
+  MST4$order <- rank(MST4$dis)
+  MST4$R1 <- 0
+  MST4$R2 <- 0
+  for (i in 1:nrow(MST4)) {
+    if((MST4$V1[i]<=n1 & MST4$V2[i]<=n1)){
+      MST4$R1[i] <- 1
+    }
+  }
+  for (i in 1:nrow(MST4)) {
+    if((MST4$V1[i]>n1 &MST4$V2[i]>n1)){
+      MST4$R2[i] <- 1
+    }
+  }
+  return(c(sum(MST4$order*MST4$R1),sum(halve$MST4*MST4$R2)))
+}
+
+
+
+
+
+
+times<-10000
+R<-matrix(0,times,2)
+for (i in 1:times) {
+  Sigma <- diag(2)
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(0, 2), Sigma)
+  R[i,]<-t(statistic_ours2_mst(data1,data2))
+}
+mu1<-mean(R[,1])
+mu2<-mean(R[,2])
+sigma_estimation<-var(R)
+#计算10000次原假设下统计量的值
+T_ours<-rep(0,times)
+for (i in 1:times) {
+  T_ours[i]<- t(c(R[i,1]-mu1,R[i,2]-mu2)) %*% sigma_estimation %*% c(R[i,1]-mu1,R[i,2]-mu2)
+}
+plot(density(T_ours))
+cv_ours2_95<-quantile(T_ours,0.95)
+#cv_ours<-quantile(T_ours,c(0.025,0.975))
+
+#算一次备择假设下统计量的值的函数
+T_sta_ours<-function(data1,data2,mu1,mu2,sigma_estimation){
+  R<- statistic_ours2_mst_mat(data1,data2)
+  STA<-t(c(R[1]-mu1,R[2]-mu2)) %*% sigma_estimation %*% c(R[1]-mu1,R[2]-mu2)
+  return(STA)
+}
+
+##find the power
+times0=100
+Sigma <- diag(2)
+sta_power_ours2 <- rep(0,times0)
+for (i in 1:times0) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(1, 2), Sigma)
+  sta_power_ours2[i]<-T_sta_ours(data1,data2,mu1,mu2,sigma_estimation)
+}
+power05_ours2 <- length(which(sta_power_ours2>cv_ours2_95))/times0
+
+sta_size_ours2 <- rep(0,times0)
+for (i in 1:times0) {
+  data1<-mvrnorm(81, rep(0, 2), Sigma)
+  data2<-mvrnorm(36, rep(0, 2), Sigma)
+  sta_size_ours2[i]<-T_sta_ours(data1,data2,mu1,mu2,sigma_estimation)
+}
+power05_ours2 <- length(which(sta_power_ours2>cv_ours2_95))/times0
+size_ours2 <- length(which(sta_size_ours2>cv_ours2_95))/times0
+rank2<-T_sta_ours(am_array,am_con_array,mu1,mu2,sigma_estimation)
+rank2=2893607652
+p_value_rank2<-length(which(T_ours<=rank2))/times
+p_value_flight2<-length(which(sta<=rank1_flight))/times
+
+
+```
+
+
+
+## Future plan
+1.We will combine a large number of summary measures for clustering, such as density,strength,shortest weighted path length, clustering coefficient and so on.
+
+2.Subgraphs with distinct features will be extracted for clustering.
+
+3.Truncating the weighted networks into binary networks,and clustering is conducted according to the characteristics of the binary network.
+
+4.If possible, we will do two sample tests on two sets of data.
+
+
+```{r eval=FALSE, include=FALSE}
+threshold<-function(mat){
+  for (i in 1:length(mat)) {
+    for (j in 1:264) {
+      for (p in 1:264) {
+        if(abs(mat[[i]][j,p])>0.5){
+          mat[[i]][j,p]<-1
+        }
+        else 
+        {mat[[i]][j,p]<-0}
+      }
+    }
+    
+  }
+  return(mat)
+}
+binary_m<-threshold(am)
+binary_m_con<-threshold(am_con)
+```
